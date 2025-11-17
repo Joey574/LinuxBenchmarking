@@ -145,9 +145,7 @@ template <size_t BLOCK_SIZE> __attribute__((used)) void BlockedDotProdCompiler2(
         }
     }
 }
-__attribute__((used)) void VariableBlockDotProd(const Tensor<float>& a, const Tensor<float>& b, Tensor<float>& c) {
-    const size_t BLOCK_SIZE = a.Dimensions()[0] / 2;
-
+template <size_t L1_BLOCK_SIZE, size_t L2_BLOCK_SIZE, size_t L3_BLOCK_SIZE>__attribute__((used)) void BlockedDotProdV3(const Tensor<float>& a, const Tensor<float>& b, Tensor<float>& c) {
     const float* __restrict aData = a.Data();
     const float* __restrict bData = b.Data();
     float* __restrict cData = c.Data();
@@ -160,23 +158,43 @@ __attribute__((used)) void VariableBlockDotProd(const Tensor<float>& a, const Te
     const size_t br = bDims[0];
     const size_t bc = bDims[1];
 
-    #pragma omp parallel for schedule(static) collapse(2)
-    for (size_t i = 0; i < ar; i += BLOCK_SIZE) {
-        for (size_t k = 0; k < bc; k += BLOCK_SIZE) {
-            for (size_t j = 0; j < br; j += BLOCK_SIZE) {
-                const size_t iMax = std::min(i + BLOCK_SIZE, ar);
-                const size_t jMax = std::min(j + BLOCK_SIZE, br);
-                const size_t kMax = std::min(k + BLOCK_SIZE, bc);
+    for (size_t i = 0; i < ar; i += L3_BLOCK_SIZE) {
+        for (size_t k = 0; k < bc; k += L3_BLOCK_SIZE) {
+            for (size_t j = 0; j < br; j += L3_BLOCK_SIZE) {
+                const size_t iMax = std::min(i + L3_BLOCK_SIZE, ar);
+                const size_t jMax = std::min(j + L3_BLOCK_SIZE, br);
+                const size_t kMax = std::min(k + L3_BLOCK_SIZE, bc);
 
-                for (size_t l = i; l < iMax; l++) {
-                    for (size_t m = j; m < jMax; m++) {
+                for (size_t i2 = i; i2 < iMax; i2 += L2_BLOCK_SIZE) {
+                    for (size_t k2 = k; k2 < kMax; k2 += L2_BLOCK_SIZE) {
+                        for (size_t j2 = j; j2 < jMax; j2 += L2_BLOCK_SIZE) {
+                            const size_t i2Max = std::min(i2 + L2_BLOCK_SIZE, ar);
+                            const size_t j2Max = std::min(j2 + L2_BLOCK_SIZE, br);
+                            const size_t k2Max = std::min(k2 + L2_BLOCK_SIZE, bc);
 
-                        #pragma omp simd
-                        for (size_t n = k; n < kMax; n++) {
-                            cData[l*bc+n] += aData[l*ac+m] * bData[m*bc+n];
+                            for (size_t i3 = i2; i3 < i2Max; i3 += L1_BLOCK_SIZE) {
+                                for (size_t k3 = k2; k3 < k2Max; k3 += L1_BLOCK_SIZE) {
+                                    for (size_t j3 = j2; j3 < j2Max; j3 += L1_BLOCK_SIZE) {
+                                        const size_t i3Max = std::min(i3 + L1_BLOCK_SIZE, ar);
+                                        const size_t j3Max = std::min(j3 + L1_BLOCK_SIZE, br);
+                                        const size_t k3Max = std::min(k3 + L1_BLOCK_SIZE, bc);
+
+                                        for (size_t i4 = i3; i4 < i3Max; i4++) {
+                                            for (size_t j4 = j3; j4 < j3Max; j4++) {
+
+                                                #pragma omp simd
+                                                for (size_t k4 = k3; k4 < k3Max; k4++) {
+                                                    cData[i4*bc+k4] += aData[i4*ac+j4] * bData[j4*bc+k4];
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
+
             }
         }
     }
@@ -184,14 +202,13 @@ __attribute__((used)) void VariableBlockDotProd(const Tensor<float>& a, const Te
 
 int main() {
     Benchmarker::cAcBC verify = &BlasDotProd;
-    Settings settings(128, 32, 4096);
+    Settings settings(32, 32, 2048);
 
-    Benchmarker::RunBenchmark("Blas" , settings, &BlasDotProd, verify);
-    //Benchmarker::RunBenchmark("Basic Compiler"  , settings, &BasicDotProdCompiler  , verify);
-    //Benchmarker::RunBenchmark<0>("Blocked Compiler<16>", settings, &BlockedDotProdCompiler<16>, verify);
-    //Benchmarker::RunBenchmark<0>("Blocked Compiler<32>", settings, &BlockedDotProdCompiler<32>, verify);
-    //Benchmarker::RunBenchmark<0>("Blocked Compiler<64>", settings, &BlockedDotProdCompiler<64>, verify);
+    //Benchmarker::RunBenchmark("Blas" , settings, &BlasDotProd, verify);
     //Benchmarker::RunBenchmark<0>("Blocked<128>", settings, &BlockedDotProdCompiler<128>, verify);
     Benchmarker::RunBenchmark<0>("Blocked2<128>", settings, &BlockedDotProdCompiler2<128>, verify);
-    //Benchmarker::RunBenchmark<0>("Variable Block", settings, &VariableBlockDotProd, verify);
+    Benchmarker::RunBenchmark<0>("BlockedV3<16, 128, 256>", settings, &BlockedDotProdV3<16, 128, 256 >, verify);
+    Benchmarker::RunBenchmark<0>("BlockedV3<64, 128, 512>", settings, &BlockedDotProdV3<64, 128, 512 >, verify);
+    Benchmarker::RunBenchmark<0>("BlockedV3<64, 128, 4096>", settings, &BlockedDotProdV3<64, 128, 4096>, verify);
+
 }
