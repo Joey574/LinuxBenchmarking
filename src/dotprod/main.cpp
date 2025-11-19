@@ -200,15 +200,16 @@ template <size_t L1_BLOCK_SIZE, size_t L2_BLOCK_SIZE, size_t L3_BLOCK_SIZE>__att
     }
 }
 
+
+double FlopsNeeded(size_t size) {
+    return 2.0 * (size*size*size);
+}
 int main() {
     Benchmarker::cAcBC verify = &BlasDotProd;
     Settings settings(32, 32, 2048);
+    settings.FlopsNeeded = &FlopsNeeded;
 
-    //Benchmarker::RunBenchmark("Blas" , settings, &BlasDotProd, verify);
-    //Benchmarker::RunBenchmark<0>("Blocked<128>", settings, &BlockedDotProdCompiler<128>, verify);
+    Benchmarker::RunBenchmark<0>("Blas" , settings, &BlasDotProd, verify);
     Benchmarker::RunBenchmark<0>("Blocked2<128>", settings, &BlockedDotProdCompiler2<128>, verify);
-    Benchmarker::RunBenchmark<0>("BlockedV3<16, 128, 256>", settings, &BlockedDotProdV3<16, 128, 256 >, verify);
-    Benchmarker::RunBenchmark<0>("BlockedV3<64, 128, 512>", settings, &BlockedDotProdV3<64, 128, 512 >, verify);
-    Benchmarker::RunBenchmark<0>("BlockedV3<64, 128, 4096>", settings, &BlockedDotProdV3<64, 128, 4096>, verify);
 
 }

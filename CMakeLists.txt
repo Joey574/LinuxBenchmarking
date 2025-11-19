@@ -10,7 +10,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/../bin)
 # -----------------------
 # Compile flags
 # -----------------------
-set(RELEASE_FLAGS_CXX -march=native -mtune=native -DNDEBUG -flto -Ofast -O3 -lopenblas -fopenmp -w)
+set(RELEASE_FLAGS_CXX -march=native -mtune=native -DNDEBUG -fno-lto -Ofast -O3 -lopenblas -fopenmp -w)
 
 
 # -----------------------
