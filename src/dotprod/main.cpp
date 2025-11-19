@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <immintrin.h>
 #include <cblas.h>
+#include <immintrin.h>
 
 #include "../../dependencies/Tensor.hpp"
 #include "../../dependencies/Benchmarker.hpp"
@@ -111,6 +112,7 @@ template <size_t BLOCK_SIZE> __attribute__((used)) void BlockedDotProdCompiler(c
         }
     }
 }
+
 template <size_t BLOCK_SIZE> __attribute__((used)) void BlockedDotProdCompiler2(const Tensor<float>& a, const Tensor<float>& b, Tensor<float>& c) {
     const float* __restrict aData = a.Data();
     const float* __restrict bData = b.Data();
@@ -145,71 +147,211 @@ template <size_t BLOCK_SIZE> __attribute__((used)) void BlockedDotProdCompiler2(
         }
     }
 }
-template <size_t L1_BLOCK_SIZE, size_t L2_BLOCK_SIZE, size_t L3_BLOCK_SIZE>__attribute__((used)) void BlockedDotProdV3(const Tensor<float>& a, const Tensor<float>& b, Tensor<float>& c) {
-    const float* __restrict aData = a.Data();
-    const float* __restrict bData = b.Data();
-    float* __restrict cData = c.Data();
+__attribute__((used)) void BlockedDotProdV2Dispatch(const Tensor<float>& a, const Tensor<float>& b, Tensor<float>& c) {
+    const size_t size = a.Size();
 
-    const auto aDims = a.Dimensions();
-    const auto bDims = b.Dimensions();
+    if (size <= 128*128) {
+        BlockedDotProdCompiler2<64>(a, b, c);
+    } else if (size <= 1024*1024) {
+        BlockedDotProdCompiler2<128>(a, b, c);
+    } else {
+        BlockedDotProdCompiler2<256>(a, b, c);
+    }
+}
 
-    const size_t ar = aDims[0];
-    const size_t ac = aDims[1];
-    const size_t br = bDims[0];
-    const size_t bc = bDims[1];
+inline void V3MicroKernel(const float* __restrict a, const float* __restrict b, float* __restrict c, size_t M, size_t N, size_t K, size_t iL1, size_t jL1, size_t kL1, size_t iL1Max, size_t jL1Max, size_t kL1Max) {
+    for (size_t i = iL1; i + 3 < iL1Max; i += 4) {
 
-    for (size_t i = 0; i < ar; i += L3_BLOCK_SIZE) {
-        for (size_t k = 0; k < bc; k += L3_BLOCK_SIZE) {
-            for (size_t j = 0; j < br; j += L3_BLOCK_SIZE) {
-                const size_t iMax = std::min(i + L3_BLOCK_SIZE, ar);
-                const size_t jMax = std::min(j + L3_BLOCK_SIZE, br);
-                const size_t kMax = std::min(k + L3_BLOCK_SIZE, bc);
+        const float* __restrict aRow0 = &a[(i+0)*K];
+        const float* __restrict aRow1 = &a[(i+1)*K];
+        const float* __restrict aRow2 = &a[(i+2)*K];
+        const float* __restrict aRow3 = &a[(i+3)*K];
 
-                for (size_t i2 = i; i2 < iMax; i2 += L2_BLOCK_SIZE) {
-                    for (size_t k2 = k; k2 < kMax; k2 += L2_BLOCK_SIZE) {
-                        for (size_t j2 = j; j2 < jMax; j2 += L2_BLOCK_SIZE) {
-                            const size_t i2Max = std::min(i2 + L2_BLOCK_SIZE, ar);
-                            const size_t j2Max = std::min(j2 + L2_BLOCK_SIZE, br);
-                            const size_t k2Max = std::min(k2 + L2_BLOCK_SIZE, bc);
+        float* __restrict cRow0 = &c[(i+0)*N];
+        float* __restrict cRow1 = &c[(i+1)*N];
+        float* __restrict cRow2 = &c[(i+2)*N];
+        float* __restrict cRow3 = &c[(i+3)*N];
 
-                            for (size_t i3 = i2; i3 < i2Max; i3 += L1_BLOCK_SIZE) {
-                                for (size_t k3 = k2; k3 < k2Max; k3 += L1_BLOCK_SIZE) {
-                                    for (size_t j3 = j2; j3 < j2Max; j3 += L1_BLOCK_SIZE) {
-                                        const size_t i3Max = std::min(i3 + L1_BLOCK_SIZE, ar);
-                                        const size_t j3Max = std::min(j3 + L1_BLOCK_SIZE, br);
-                                        const size_t k3Max = std::min(k3 + L1_BLOCK_SIZE, bc);
+        for (size_t j = jL1; j < jL1Max; j += 4) {
+            const size_t jjMax = std::min(j + 4, jL1Max);
 
-                                        for (size_t i4 = i3; i4 < i3Max; i4++) {
-                                            for (size_t j4 = j3; j4 < j3Max; j4++) {
+            // Vector loop over k in 8-wide chunks
+            for (size_t k = kL1; k + 7 < kL1Max; k += 8) {
+                // Load C 4 rows × 8 cols (each __m256 holds 8 floats)
+                __m256 _c0 = _mm256_load_ps(&cRow0[k]);
+                __m256 _c1 = _mm256_load_ps(&cRow1[k]);
+                __m256 _c2 = _mm256_load_ps(&cRow2[k]);
+                __m256 _c3 = _mm256_load_ps(&cRow3[k]);
 
-                                                #pragma omp simd
-                                                for (size_t k4 = k3; k4 < k3Max; k4++) {
-                                                    cData[i4*bc+k4] += aData[i4*ac+j4] * bData[j4*bc+k4];
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                // Accumulate over the small inner tile (up to 4)
+                #pragma GCC unroll 4
+                for (size_t jj = j; jj < jjMax; jj++) {
+                    __m256 _a0 = _mm256_set1_ps(aRow0[jj]);
+                    __m256 _a1 = _mm256_set1_ps(aRow1[jj]);
+                    __m256 _a2 = _mm256_set1_ps(aRow2[jj]);
+                    __m256 _a3 = _mm256_set1_ps(aRow3[jj]);
+
+                    __m256 _b = _mm256_load_ps(&b[jj * N + k]);
+
+                    _c0 = _mm256_fmadd_ps(_a0, _b, _c0);
+                    _c1 = _mm256_fmadd_ps(_a1, _b, _c1);
+                    _c2 = _mm256_fmadd_ps(_a2, _b, _c2);
+                    _c3 = _mm256_fmadd_ps(_a3, _b, _c3);
                 }
 
+                // Store back C
+                _mm256_store_ps(&cRow0[k], _c0);
+                _mm256_store_ps(&cRow1[k], _c1);
+                _mm256_store_ps(&cRow2[k], _c2);
+                _mm256_store_ps(&cRow3[k], _c3);
+            } // end k vector chunks
+
+            // Scalar remainder for k (the tail columns)
+            size_t kTailStart = kL1 + ((kL1Max - kL1) / 8) * 8;
+            if (kTailStart < kL1Max) {
+                for (size_t kk = kTailStart; kk < kL1Max; ++kk) {
+                    for (size_t jj = j; jj < jjMax; ++jj) {
+                        const float bv = b[jj * N + kk];
+                        cRow0[kk] += aRow0[jj] * bv;
+                        cRow1[kk] += aRow1[jj] * bv;
+                        cRow2[kk] += aRow2[jj] * bv;
+                        cRow3[kk] += aRow3[jj] * bv;
+                    }
+                }
+            }
+        } // end j-blocks (4-wide)
+    } // end i blocks (4 rows)
+
+    // Handle leftover i rows (i rem < 4)
+    for (size_t iRem = (iL1Max / 4) * 4; iRem < iL1Max; ++iRem) {
+        for (size_t j = jL1; j < jL1Max; ++j) {
+            // vectorized k loop (8-wide) for remainder rows if desired,
+            // but simplest is scalar (safe & clear):
+            size_t k = kL1;
+            for (; k + 7 < kL1Max; k += 8) {
+                // do a small vectorized step using broadcast (optional)
+                __m256 _av = _mm256_set1_ps(a[iRem * K + j]);
+                __m256 _bv = _mm256_load_ps(&b[j * N + k]);
+                __m256 _cv = _mm256_load_ps(&c[iRem * N + k]);
+
+                _cv = _mm256_fmadd_ps(_av, _bv, _cv);
+                _mm256_store_ps(&c[iRem * N + k], _cv);
+            }
+            for (; k < kL1Max; ++k) {
+                c[iRem * N + k] += a[iRem * K + j] * b[j * N + k];
             }
         }
     }
 }
+template <size_t L1_BLOCK_SIZE, size_t L2_BLOCK_SIZE, size_t L3_BLOCK_SIZE> __attribute__((used)) void BlockedDotProdV3(const Tensor<float>& A, const Tensor<float>& B, Tensor<float>& C) {
+    const float* __restrict aData = A.Data();
+    const float* __restrict bData = B.Data();
+    float* __restrict cData = C.Data();
 
+    const auto aDims = A.Dimensions();
+    const auto bDims = B.Dimensions();
+
+    const size_t M = aDims[0];
+    const size_t K = aDims[1];
+    const size_t N = bDims[1];
+
+    #pragma omp parallel for collapse(2) schedule(static)
+    for (size_t iL3 = 0; iL3 < M; iL3 += L3_BLOCK_SIZE) {
+        for (size_t kL3 = 0; kL3 < N; kL3 += L3_BLOCK_SIZE) {
+            const size_t iL3Max = std::min(iL3 + L3_BLOCK_SIZE, M);
+            const size_t kL3Max = std::min(kL3 + L3_BLOCK_SIZE, N);
+
+            for (size_t jL3 = 0; jL3 < K; jL3 += L3_BLOCK_SIZE) {
+                const size_t jL3Max = std::min(jL3 + L3_BLOCK_SIZE, K);
+
+                // L2 blocking
+                for (size_t iL2 = iL3; iL2 < iL3Max; iL2 += L2_BLOCK_SIZE) {
+                    const size_t iL2Max = std::min(iL2 + L2_BLOCK_SIZE, iL3Max);
+
+                    for (size_t kL2 = kL3; kL2 < kL3Max; kL2 += L2_BLOCK_SIZE) {
+                        const size_t kL2Max = std::min(kL2 + L2_BLOCK_SIZE, kL3Max);
+
+                        for (size_t jL2 = jL3; jL2 < jL3Max; jL2 += L2_BLOCK_SIZE) {
+                            const size_t jL2Max = std::min(jL2 + L2_BLOCK_SIZE, jL3Max);
+
+                            // L1 blocking
+                            for (size_t iL1 = iL2; iL1 < iL2Max; iL1 += L1_BLOCK_SIZE) {
+                                const size_t iL1Max = std::min(iL1 + L1_BLOCK_SIZE, iL2Max);
+
+                                for (size_t kL1 = kL2; kL1 < kL2Max; kL1 += L1_BLOCK_SIZE) {
+                                    const size_t kL1Max = std::min(kL1 + L1_BLOCK_SIZE, kL2Max);
+
+                                    for (size_t jL1 = jL2; jL1 < jL2Max; jL1 += L1_BLOCK_SIZE) {
+                                        const size_t jL1Max = std::min(jL1 + L1_BLOCK_SIZE, jL2Max);
+
+                                        // pack b into bPacked
+                                        Tensor<float> bPacked(jL1Max - jL1);
+                                        cblas_scopy(jL1Max-jL1, &bData[jL1], bc, bPacked.Data(), 1);
+
+                                        // ---- 4x4 register-blocked microkernel ----
+                                        // Process 4 rows (i..i+3) and up to 4 inner cols (j..j+3).
+                                        V3MicroKernel(aData, bData, cData, M, N, K, iL1, jL1, kL1, iL1Max, jL1Max, kL1Max);
+                                        
+                                    } // end jL1
+                                } // end kL1
+                            } // end iL1
+                        } // end jL2
+                    } // end kL2
+                } // end iL2
+            } // end jL3
+        } // end kL3
+    } // end iL3
+}
+__attribute__((used)) void BlockedDotProdV3Dispatch(const Tensor<float>& a, const Tensor<float>& b, Tensor<float>& c) {
+    const size_t size = a.Size();
+
+    if (size <= 256*256) {
+        BlockedDotProdV3<16, 32, 64>(a, b, c);
+    } else if (size <= 1024*1024) {
+        BlockedDotProdV3<32, 64, 128>(a, b, c);
+    } else {
+        BlockedDotProdV3<64, 128, 512>(a, b, c);
+    }
+}
+
+inline void V4MicroKernel(size_t M, size_t N, size_t K, const float* __restrict a, const float* __restrict b, float* __restrict c, size_t ldc) {
+    for (size_t i = 0; i < M; i++) {
+        for (size_t j = 0; j < N; j++) {
+            const float* aRow = a+i*K;
+            const float* bCol = b+j;
+            float sum = 0.0f;
+
+            for (size_t k = 0; k < K; k++) {
+                sum += aRow[k] * bCol[k*N];
+            }
+
+            c[i*ldc + j] += sum;
+        }
+    }
+}
+__attribute__((used)) void BlockedDotProdV4(const Tensor<float>& a, const Tensor<float>& b, Tensor<float>& c) {
+    constexpr const size_t L1_BLOCK_SIZE = 128;
+    constexpr const size_t L2_BLOCK_SIZE = 256;
+    constexpr const size_t L3_BLOCK_SIZE = 1024;
+
+    constexpr const size_t MICROKERNAL_ROWS = 4;
+    constexpr const size_t MICROKERNAL_COLS = 4;
+
+    const size_t M = a.Dimensions()[0];
+    const size_t K = b.Dimensions()[0];
+    const size_t N = b.Dimensions()[1];
+
+}
 
 double FlopsNeeded(size_t size) {
     return 2.0 * (size*size*size);
 }
 int main() {
     Benchmarker::cAcBC verify = &BlasDotProd;
-    Settings settings(32, 32, 2048);
+    Settings settings(32, 128, 4096);
     settings.FlopsNeeded = &FlopsNeeded;
 
     Benchmarker::RunBenchmark<0>("Blas" , settings, &BlasDotProd, verify);
-    Benchmarker::RunBenchmark<0>("Blocked2<128>", settings, &BlockedDotProdCompiler2<128>, verify);
-
+    //Benchmarker::RunBenchmark<0>("BlockedV2Dispatch", settings, &BlockedDotProdV2Dispatch, verify);
+    Benchmarker::RunBenchmark<0>("BlockedV3Dispatch", settings, &BlockedDotProdV3Dispatch, verify);
 }

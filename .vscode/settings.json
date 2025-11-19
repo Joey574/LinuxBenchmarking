@@ -1,5 +1,7 @@
 {
     "files.associations": {
+        "*.config": "json",
+        "*.env": "ini",
         "chrono": "cpp",
         "array": "cpp",
         "atomic": "cpp",
@@ -67,7 +69,8 @@
         "codecvt": "cpp",
         "csignal": "cpp",
         "fstream": "cpp",
-        "ranges": "cpp"
+        "ranges": "cpp",
+        "cinttypes": "cpp"
     },
     "Lua.workspace.library": [
         "/home/joey/repos/LinuxBenchmarking/",

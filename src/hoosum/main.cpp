@@ -59,9 +59,9 @@ double FlopsNeeded(size_t size) {
 int main() {
     Benchmarker::aXpbY verify = nullptr;
     
-    constexpr unsigned long long low  = 1ULL << 14;
-    constexpr unsigned long long high = 1ULL << 19;
-    Settings settings(256,  low, high);
+    constexpr unsigned long long low  = 1ULL << 18;
+    constexpr unsigned long long high = 1ULL << 18;
+    Settings settings(4096,  low, high);
     settings.FlopsNeeded = &FlopsNeeded;
 
     Benchmarker::RunBenchmark<0>("Serial", settings, &UnoptimizedaXpbY, verify);

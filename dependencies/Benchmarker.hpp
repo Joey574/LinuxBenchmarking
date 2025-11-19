@@ -264,6 +264,8 @@ struct Benchmarker {
 
             OutputResults(settings, size, slen, times, error, flops, verify != nullptr, settings.FlopsNeeded != nullptr);
         }
+
+        std::cout << std::endl;
     }
 
     private:
@@ -283,15 +285,15 @@ struct Benchmarker {
 
         std::string fmpe;
         if (verified) {
-            fmpe = "\t(\033[33m" + std::to_string(mpe); fmpe.resize(15, ' '); fmpe += "%\033[0m mpe)";
+            fmpe = "    (\033[33m" + std::to_string(mpe); fmpe.resize(15, ' '); fmpe += "%\033[0m mpe)";
         }
 
         std::string fpth ;
         if (theoretical) {
-            fpth = "\t(\033[32m" + std::to_string((afl / settings.flops)*100.00); fpth.resize(15, ' '); fpth += "%\033[0m theoretical)";
+            fpth = "    (\033[32m" + std::to_string((afl / settings.flops)*100.00); fpth.resize(15, ' '); fpth += "%\033[0m theoretical)";
         }
 
-        std::string fstr = "\t" + fsize + "\t\033[32m" + fbest + "\033[0m - \033[31m" + fworst + "\033[0m :: \033[34m" + favg + "\033[0m\ttaken over \033[33m" + std::to_string(settings.runs) + "\033[0m runs" + fmpe + fpth + "\n";
+        std::string fstr = "\t" + fsize + "\t\033[32m" + fbest + "\033[0m - \033[31m" + fworst + "\033[0m :: \033[34m" + favg + "\033[0m    taken over \033[33m" + std::to_string(settings.runs) + "\033[0m runs" + fmpe + fpth + "\n";
         std::cout << fstr;
     }
     static inline void OutputResults(size_t size, size_t slen, int runs, const std::vector<double>& times, double mpe, bool verified, double pth, bool theoretical) {
