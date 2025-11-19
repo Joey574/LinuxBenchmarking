@@ -110,6 +110,7 @@ struct Benchmarker {
 
         auto times = std::vector<double>(runs, 0.0);
         auto error = std::vector<double>(runs, 0.0);
+        auto flops = std::vector<double>(runs, 0.0);
 
         for (size_t size = start_size; size <= max_size; size *= 2) {
 
@@ -148,8 +149,7 @@ struct Benchmarker {
                 }
             }
 
-            double mpe = (verify != nullptr) ? std::reduce(std::execution::unseq, error.begin(), error.end(), 0.00, std::plus<double>()) / (double)runs : 0.00;
-            OutputResults(size, slen, runs, times, mpe, verify != nullptr, 0, settings.FlopsNeeded != nullptr);
+            OutputResults(settings, size, slen, times, error, flops, verify != nullptr, settings.FlopsNeeded != nullptr);
         }
     }
     template <int TYPE=0> static inline void RunBenchmark(const std::string& name, const Settings& settings, const AcBCD test, const AcBCD verify=nullptr) {
@@ -163,6 +163,7 @@ struct Benchmarker {
 
         auto times = std::vector<double>(runs, 0.0);
         auto error = std::vector<double>(runs, 0.0);
+        auto flops = std::vector<double>(runs, 0.0);
 
         std::random_device rd;
         std::mt19937 gen(rd());
@@ -207,8 +208,7 @@ struct Benchmarker {
                 iteration++;
             }
 
-            double mpe = (verify != nullptr) ? std::reduce(std::execution::unseq, error.begin(), error.end(), 0.00, std::plus<double>()) / (double)runs : 0.00;
-            OutputResults(size, slen, runs, times, mpe, verify != nullptr, 0, settings.FlopsNeeded != nullptr);
+            OutputResults(settings, size, slen, times, error, flops, verify != nullptr, settings.FlopsNeeded != nullptr);
         }
     }
     template <int TYPE=0> static inline void RunBenchmark(const std::string& name, const Settings& settings, const aXpbY test, const aXpbY verify=nullptr) {
@@ -270,56 +270,44 @@ struct Benchmarker {
 
     private:
     static inline void OutputResults(const Settings& settings, size_t size, size_t slen, const std::vector<double>& times, const std::vector<double>& error, const std::vector<double>& flops, bool verified, bool theoretical) {
-        double best, worst, avg, sum;
-        double mpe = verified ? std::reduce(error.begin(), error.end(), 0.0, std::plus<double>()) / (double)settings.runs : 0.0;
-        double afl = theoretical ? std::reduce(flops.begin(), flops.end(), 0.0, std::plus<double>()) / (double)settings.runs : 0.0;
+        double best, worst, mean, sum;
 
         auto it = std::minmax_element(times.begin(), times.end()); best = *it.first; worst = *it.second;
         sum = std::reduce(times.begin(), times.end(), 0.0, std::plus<double>());
-        avg = sum / (double)settings.runs;
+        mean = sum / (double)settings.runs;
 
-        std::string fsize = std::to_string(size) +":"; fsize.resize(slen, ' ');
-        std::string fbest = std::to_string(best); fbest.resize(7, ' '); fbest += "ms";
-        std::string fworst = std::to_string(worst); fworst.resize(7, ' '); fworst += "ms";
-        std::string favg = std::to_string(avg); favg.resize(7, ' '); favg += "ms";
+        double meanPercentError = verified ? Mean(error) : 0.0;
+        double meanFlops = theoretical ? Mean(flops) : 0.0;
+        double sd = StdDev(times, mean);
 
-        std::string fmpe;
-        if (verified) {
-            fmpe = "    (\033[33m" + std::to_string(mpe); fmpe.resize(15, ' '); fmpe += "%\033[0m mpe)";
-        }
+        double CV = VariationCoefficient(sd, mean) * 100.0;
+        double CI = CIHalfWidth(sd, times.size());
 
-        std::string fpth ;
-        if (theoretical) {
-            fpth = "    (\033[32m" + std::to_string((afl / settings.flops)*100.00); fpth.resize(15, ' '); fpth += "%\033[0m theoretical)";
-        }
+        double percentTheoretical = theoretical ? (Mean(flops) / settings.flops * 100.0) : 0.0;
 
-        std::string fstr = "\t" + fsize + "\t\033[32m" + fbest + "\033[0m - \033[31m" + fworst + "\033[0m :: \033[34m" + favg + "\033[0m    taken over \033[33m" + std::to_string(settings.runs) + "\033[0m runs" + fmpe + fpth + "\n";
-        std::cout << fstr;
-    }
-    static inline void OutputResults(size_t size, size_t slen, int runs, const std::vector<double>& times, double mpe, bool verified, double pth, bool theoretical) {
-        double best, worst, avg, sum;
+        auto format = [&](double v, int width, int precision=4){
+            std::ostringstream oss;
+            oss << std::fixed << std::setprecision(precision) << std::setw(width) << v;
+            return oss.str();
+        };
 
-        auto it = std::minmax_element(times.begin(), times.end()); best = *it.first; worst = *it.second;
-        sum = std::reduce(std::execution::unseq, times.begin(), times.end(), 0.00, std::plus<double>());
-        avg = sum / (double)runs;
+        std::string fSize = "\033[0m" + format(size, slen, 0) + ":";
 
-        std::string fsize = std::to_string(size) +":"; fsize.resize(slen, ' ');
-        std::string fbest = std::to_string(best); fbest.resize(7, ' '); fbest += "ms";
-        std::string fworst = std::to_string(worst); fworst.resize(7, ' '); fworst += "ms";
-        std::string favg = std::to_string(avg); favg.resize(7, ' '); favg += "ms";
-        
-        std::string fmpe;
-        if (verified) {
-            fmpe = "\t(\033[33m" + std::to_string(mpe); fmpe.resize(15, ' '); fmpe += "%\033[0m mpe)";
-        }
+        std::string fBest = "\033[32m" + format(best, 8, 5) + "ms\033[0m";
+        std::string fWorst = "\033[31m" + format(worst, 8, 5) + "ms\033[0m";
+        std::string fMean = "\033[34m" + format(mean, 8, 5) + "ms\033[0m";
+        std::string fTimes = fBest + " - " + fWorst + " :: " + fMean;
 
-        std::string fpth ;
-        if (theoretical) {
-            fpth = "\t(\t\033[32m)" + std::string("pth"); fpth.resize(15, ' '); fpth += "%\033[0m theoretical)";
-        }
+        std::string fRuns = "taken over \033[33m" + std::to_string(settings.runs) + "\033[0m runs";
 
-        std::string fstr = "\t" + fsize + "\t\033[32m" + fbest + "\033[0m - \033[31m" + fworst + "\033[0m :: \033[34m" + favg + "\033[0m\ttaken over \033[33m" + std::to_string(runs) + "\033[0m runs" + fmpe + fpth + "\n";
-        std::cout << fstr;
+        std::string fCV = "  (\033[33m" + format(CV, 5, 2) + "%\033[0m CV)";
+        std::string fCI = "  (CI 95% +- \033[33m" + format(CI, 4, 3) + "ms\033[0m)";
+
+        std::string fMpe = verified ? ("  (\033[33m" + format(meanPercentError, 5, 3) + "%\033[0m mpe)") : "";
+        std::string fPth = theoretical ? ("  (\033[32m" + format(percentTheoretical, 5, 3) + "%\033[0m theoretical)") : "";
+
+        std::string fStr = fSize + "\t" + fTimes + "\t" + fRuns + fCV + fCI + fMpe + fPth + "\n";
+        std::cout << fStr;
     }
     static constexpr inline int NumDigits(size_t n) {
         int digits = 0;
@@ -328,5 +316,23 @@ struct Benchmarker {
             n /= 10;
         } while (n != 0);
         return digits;
+    }
+
+    static inline double Mean(const std::vector<double>& t) {
+        return std::reduce(std::execution::unseq, t.begin(), t.end(), 0.00, std::plus<double>()) / t.size();
+    }
+    static inline double StdDev(const std::vector<double>& t, double mu) {
+        double s = std::transform_reduce(std::execution::unseq, t.begin(), t.end(), 0.0, std::plus<double>(), [&](double x){ return (x-mu) *(x-mu); });
+        return std::sqrt(s / (t.size()-1));
+    }
+    static inline double VariationCoefficient(double sd, double mu) {
+        return sd / mu;
+    }
+    static inline double CIHalfWidth(double sd, size_t n) {
+        double t = 1.96;
+        return t * sd / std::sqrt((double)n);
+    }
+    static inline double RCIW(double upper, double lower, double mean) {
+        return (upper - lower) / (2.0*mean);
     }
 };
