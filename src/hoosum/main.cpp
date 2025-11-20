@@ -57,9 +57,9 @@ double FlopsNeeded(size_t size) {
     return (double)size * 3.0;
 }
 int main() {
-    Benchmarker::aXpbY verify = nullptr;
+    Benchmarker::aXpbY verify = &ParallelSimdaXpbY;
     
-    constexpr unsigned long long low  = 1ULL << 18;
+    constexpr unsigned long long low  = 1ULL << 14;
     constexpr unsigned long long high = 1ULL << 18;
     Settings settings(4096,  low, high);
     settings.FlopsNeeded = &FlopsNeeded;

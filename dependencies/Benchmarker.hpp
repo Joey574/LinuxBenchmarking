@@ -270,11 +270,11 @@ struct Benchmarker {
 
     private:
     static inline void OutputResults(const Settings& settings, size_t size, size_t slen, const std::vector<double>& times, const std::vector<double>& error, const std::vector<double>& flops, bool verified, bool theoretical) {
-        double best, worst, mean, sum;
-
-        auto it = std::minmax_element(times.begin(), times.end()); best = *it.first; worst = *it.second;
-        sum = std::reduce(times.begin(), times.end(), 0.0, std::plus<double>());
-        mean = sum / (double)settings.runs;
+        auto it = std::minmax_element(times.begin(), times.end()); 
+        double best = *it.first; 
+        double worst = *it.second;
+        double sum = std::reduce(times.begin(), times.end(), 0.0, std::plus<double>());
+        double mean = sum / (double)settings.runs;
 
         double meanPercentError = verified ? Mean(error) : 0.0;
         double meanFlops = theoretical ? Mean(flops) : 0.0;
@@ -282,32 +282,100 @@ struct Benchmarker {
 
         double CV = VariationCoefficient(sd, mean) * 100.0;
         double CI = CIHalfWidth(sd, times.size());
-
         double percentTheoretical = theoretical ? (Mean(flops) / settings.flops * 100.0) : 0.0;
 
-        auto format = [&](double v, int width, int precision=4){
+        constexpr const size_t COL_BEST = 14;
+        constexpr const size_t COL_WORST = 14;
+        constexpr const size_t COL_MEAN = 14;
+        constexpr const size_t COL_RUNS = 6;
+        constexpr const size_t COL_MPE = 10;
+        constexpr const size_t COL_CV = 14;
+        constexpr const size_t COL_CI = 16;
+        constexpr const size_t COL_PTH = 10;
+
+        auto formatRaw = [](double v, int precision = 4) {
+            if (!std::isfinite(v)) { return std::string("-"); }
             std::ostringstream oss;
-            oss << std::fixed << std::setprecision(precision) << std::setw(width) << v;
+            oss << std::fixed << std::setprecision(precision) << v;
             return oss.str();
         };
 
-        std::string fSize = "\033[0m" + format(size, slen, 0) + ":";
+        auto padRaw = [](const std::string& s, int width, bool leftAlign = false) {
+            if (s.size() >= width) { return s.substr(0, width); }
+            if (leftAlign) {
+                return s + std::string(width - s.size(), ' ');
+            } else {
+                return std::string(width - s.size(), ' ') + s;
+            }
+        };
 
-        std::string fBest = "\033[32m" + format(best, 8, 5) + "ms\033[0m";
-        std::string fWorst = "\033[31m" + format(worst, 8, 5) + "ms\033[0m";
-        std::string fMean = "\033[34m" + format(mean, 8, 5) + "ms\033[0m";
-        std::string fTimes = fBest + " - " + fWorst + " :: " + fMean;
+        auto colorWrap = [](const std::string& paddedRaw, const char* color) {
+            if (!color) { return paddedRaw; }
+            return std::string(color) + paddedRaw + "\033[0m";
+        };
 
-        std::string fRuns = "taken over \033[33m" + std::to_string(settings.runs) + "\033[0m runs";
+        // raw fields
+        std::string rawSize = std::to_string(size);
+        std::string rawBest = formatRaw(best, 5) + "ms";
+        std::string rawWorst = formatRaw(worst, 5) + "ms";
+        std::string rawMean = formatRaw(mean, 5) + "ms";
+        std::string rawRuns = std::to_string(settings.runs);
+        std::string rawCV = formatRaw(CV, 2) + "%";
+        std::string rawCI = "± " + formatRaw(CI, 3) + "ms";
+        std::string rawMpe = verified ? (formatRaw(meanPercentError, 3) + "%") : "";
+        std::string rawPth = theoretical ? (formatRaw(percentTheoretical, 2) + "%") : "";
 
-        std::string fCV = "  (\033[33m" + format(CV, 5, 2) + "%\033[0m CV)";
-        std::string fCI = "  (CI 95% +- \033[33m" + format(CI, 4, 3) + "ms\033[0m)";
+        // pad all to width
+        std::string paddedSize  = padRaw(rawSize,  slen,      true);
+        std::string paddedRuns  = padRaw(rawRuns,  COL_RUNS,  true);
+        std::string paddedBest  = padRaw(rawBest,  COL_BEST,  true);
+        std::string paddedWorst = padRaw(rawWorst, COL_WORST, true);
+        std::string paddedMean  = padRaw(rawMean,  COL_MEAN,  true);
+        std::string paddedCV    = padRaw(rawCV,    COL_CV,    true);
+        std::string paddedCI    = padRaw(rawCI,    COL_CI,    true);
+        std::string paddedMpe   = padRaw(rawMpe,   COL_MPE,   true);
+        std::string paddedPth   = padRaw(rawPth,   COL_PTH,   true);
 
-        std::string fMpe = verified ? ("  (\033[33m" + format(meanPercentError, 5, 3) + "%\033[0m mpe)") : "";
-        std::string fPth = theoretical ? ("  (\033[32m" + format(percentTheoretical, 5, 3) + "%\033[0m theoretical)") : "";
+        // apply colors
+        std::string sizeCol  = colorWrap(paddedSize,  "\033[0m");
+        std::string bestCol  = colorWrap(paddedBest,  "\033[32m");
+        std::string worstCol = colorWrap(paddedWorst, "\033[31m");
+        std::string meanCol  = colorWrap(paddedMean,  "\033[34m");
+        std::string runsCol  = colorWrap(paddedRuns,  "\033[33m");
+        std::string CVCol    = colorWrap(paddedCV,    "\033[33m");
+        std::string CICol    = colorWrap(paddedCI,    "\033[33m");
+        std::string mpeCol   = verified    ? colorWrap(paddedMpe, "\033[33m") : paddedMpe;
+        std::string pthCol   = theoretical ? colorWrap(paddedPth, "\033[32m") : paddedPth;
 
-        std::string fStr = fSize + "\t" + fTimes + "\t" + fRuns + fCV + fCI + fMpe + fPth + "\n";
-        std::cout << fStr;
+        // output header once
+        static bool printedHeader = false;
+        if (!printedHeader) {
+            std::ostringstream hdr;
+            hdr << padRaw("size",  slen,      true) << " "
+                << padRaw("runs",  COL_RUNS,  true) << " "
+                << padRaw("best",  COL_BEST,  true) << " "
+                << padRaw("worst", COL_WORST, true) << " "
+                << padRaw("mean",  COL_MEAN,  true) << " "
+                << padRaw("CV",    COL_CV,    true) << "  "
+                << padRaw("CI95",  COL_CI,    true) << " "
+                << padRaw("MPE",   COL_MPE,   true) << "  "
+                << padRaw("PTH",   COL_PTH,   true) << "\n";
+            std::cout << hdr.str();
+            printedHeader = true;
+        }
+
+        std::ostringstream oss;
+        oss << sizeCol  << " "
+            << runsCol  << " "
+            << bestCol  << " "
+            << worstCol << " "
+            << meanCol  << " "
+            << CVCol    << "  "
+            << CICol    << "  "
+            << mpeCol   << "  "
+            << pthCol   << "\n";
+
+        std::cout << oss.str();
     }
     static constexpr inline int NumDigits(size_t n) {
         int digits = 0;

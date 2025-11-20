@@ -478,11 +478,11 @@ double FlopsNeeded(size_t size) {
 }
 int main() {
     Benchmarker::cAcBC verify = &BlasDotProd;
-    Settings settings(1024, 128, 1024);
+    Settings settings(32, 128, 4096);
     settings.FlopsNeeded = &FlopsNeeded;
 
-    //Benchmarker::RunBenchmark<0>("Blas" , settings, &BlasDotProd, verify);
+    Benchmarker::RunBenchmark<0>("Blas" , settings, &BlasDotProd, verify);
     Benchmarker::RunBenchmark<0>("BlockedV4Dispatch", settings, &BlockedDotProdV4Dispatch, verify);
+    Benchmarker::RunBenchmark<0>("Basic", settings, &BasicDotProdCompiler, verify);
     //Benchmarker::RunBenchmark<0>("BlockedV3Dispatch", settings, &BlockedDotProdV3Dispatch, verify);
-    //Benchmarker::RunBenchmark<0>("Basic", settings, &BasicDotProdCompiler, verify);
 }
