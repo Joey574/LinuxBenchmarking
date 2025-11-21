@@ -52,6 +52,10 @@ void ParallelSimdaXpbY(float alpha, const Tensor<float>& x, float beta, Tensor<f
         yData[i] = alpha * xData[i] + beta * yData[i];
     }
 }
+__attribute__((used))
+void BlasaXpbY(float alpha, const Tensor<float>& x, float beta, Tensor<float>& y) {
+    cblas_saxpby(x.Size(), alpha, x.Data(), 1, beta, y.Data(), 1);
+}
 
 double FlopsNeeded(size_t size) {
     return (double)size * 3.0;
@@ -61,11 +65,13 @@ int main() {
     
     constexpr unsigned long long low  = 1ULL << 14;
     constexpr unsigned long long high = 1ULL << 18;
-    Settings settings(4096,  low, high);
+    Settings settings(1024,  low, high);
     settings.FlopsNeeded = &FlopsNeeded;
 
     Benchmarker::RunBenchmark<0>("Serial", settings, &UnoptimizedaXpbY, verify);
     Benchmarker::RunBenchmark<0>("ParallelaXpbY", settings, &ParallelaXpbY, verify);
     Benchmarker::RunBenchmark<0>("SimdaXpbY", settings, &SimdaXpbY, verify);
     Benchmarker::RunBenchmark<0>("ParallelSimdaXpbY", settings, &ParallelSimdaXpbY, verify);
+    Benchmarker::RunBenchmark<0>("Blas", settings, &BlasaXpbY, verify);
+
 }
