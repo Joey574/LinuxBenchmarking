@@ -63,15 +63,14 @@ double FlopsNeeded(size_t size) {
 int main() {
     Benchmarker::aXpbY verify = &ParallelSimdaXpbY;
     
-    constexpr unsigned long long low  = 1ULL << 14;
+    constexpr unsigned long long low  = 1ULL << 18;
     constexpr unsigned long long high = 1ULL << 18;
-    Settings settings(1024,  low, high);
+    Settings settings(4096,  low, high);
     settings.FlopsNeeded = &FlopsNeeded;
 
-    Benchmarker::RunBenchmark<0>("Serial", settings, &UnoptimizedaXpbY, verify);
-    Benchmarker::RunBenchmark<0>("ParallelaXpbY", settings, &ParallelaXpbY, verify);
-    Benchmarker::RunBenchmark<0>("SimdaXpbY", settings, &SimdaXpbY, verify);
+    //Benchmarker::RunBenchmark<0>("Serial", settings, &UnoptimizedaXpbY, verify);
+    //Benchmarker::RunBenchmark<0>("ParallelaXpbY", settings, &ParallelaXpbY, verify);
+    //Benchmarker::RunBenchmark<0>("SimdaXpbY", settings, &SimdaXpbY, verify);
     Benchmarker::RunBenchmark<0>("ParallelSimdaXpbY", settings, &ParallelSimdaXpbY, verify);
-    Benchmarker::RunBenchmark<0>("Blas", settings, &BlasaXpbY, verify);
-
+    //Benchmarker::RunBenchmark<0>("Blas", settings, &BlasaXpbY, verify);
 }

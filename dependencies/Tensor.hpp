@@ -30,16 +30,23 @@ struct Tensor {
     /// @brief Constructor
     template <typename... Dims> Tensor(Dims... dims) : dimensions{dims...}, owner(true) {
         size_t size = Size();
-        data = (T*)aligned_alloc(32, size*sizeof(T));
+
+        capacity = (size + 32) & ~31;
+        data = (T*)aligned_alloc(32, capacity*sizeof(T));
     }
 
 
     /// @brief Contstructor
-    Tensor(float* data, std::vector<size_t>& dimensions, bool owner=true) : data(data), dimensions(dimensions), owner(owner) {}
+    Tensor(T* data, std::vector<size_t>& dimensions, bool owner=true) : data(data), dimensions(dimensions), owner(owner) {
+        capacity = (Size()+32) & ~31;
+    }
 
 
     /// @brief Move constructor
-    Tensor(Tensor&& other) noexcept : data(other.data), dimensions(std::move(other.dimensions)), owner(true) { other.data = nullptr; }
+    Tensor(Tensor&& other) noexcept : data(other.data), dimensions(std::move(other.dimensions)), owner(other.owner), capacity(other.capacity) { 
+        other.owner = false;
+        other.data = nullptr;
+    }
 
 
     /// @brief Copy constructor
@@ -47,7 +54,8 @@ struct Tensor {
         size_t size = Size();
         std::cout << "[-] Tensor copy constructor (" << size*sizeof(T) << " bytes)\n";
 
-        data = (T*)aligned_alloc(32, size*sizeof(T));
+        capacity = (size + 32) & ~31;
+        data = (T*)aligned_alloc(32, capacity*sizeof(T));
         memcpy(data, other.data, size*sizeof(T));
     }
 
@@ -61,9 +69,11 @@ struct Tensor {
         if (data && owner && this != &other) { std::free(data); }
 
         data = other.data;
+        owner = other.owner;
+        capacity = other.capacity;
         dimensions = std::move(other.dimensions);
         other.data = nullptr;
-        owner = true;
+        other.owner = false;
         return *this;
     }
 
@@ -76,7 +86,8 @@ struct Tensor {
         size_t size = Size();
         std::cout << "[-] Tensor copy assignment (" << size*sizeof(T) << " bytes)\n";
 
-        data = (T*)aligned_alloc(32, size*sizeof(T));
+        capacity = (size + 32) & ~31;
+        data = (T*)aligned_alloc(32, capacity*sizeof(T));
         memcpy(data, other.data, size*sizeof(T));
         owner = true;
         return *this;
@@ -114,41 +125,10 @@ struct Tensor {
     }
 
 
-    /// @brief Creates a tensor of 1 less dimensionality
-    /// @param start The element the view should start at
-    /// @param n The number of elements to include
-    /// @return A new non-owning tensor from start
-    inline Tensor ViewFrom(size_t start, size_t n) {
-        assert(!dimensions.empty());
-        assert(Size() != 0);
-
-        size_t stride = 1;
-        if (dimensions.size() > 1) {
-            stride = std::reduce(std::execution::unseq, dimensions.begin(), dimensions.end()-1, 1, std::multiplies<size_t>());
-        }
-
-        T* offsetData = data + stride*start;
-        auto d = dimensions;
-        d[d.size()-1] = n;
-
-        return Tensor(offsetData, d, false);
-    }
-
-
-    inline std::string ToString() const {
-        std::string res;
-        for (size_t i = 0; i < Size(); i++) {
-            res += data[i] + ", ";
-        }
-        return res;
-    }
-
-
     inline void Randomize(T min, T max, uint64_t seed) {
         const size_t n = Size();
 
-        const int tid = omp_get_thread_num();
-        std::mt19937 gen(seed+tid);
+        std::mt19937 gen(seed);
         std::uniform_real_distribution<T> dist(min, max);
 
         for (size_t i = 0; i < n; i++) {
@@ -157,18 +137,8 @@ struct Tensor {
     }
 
 
-    template <typename... Dims> inline void Resize(Dims... dims) {
-        if (data && owner) { free(data); }
-        dimensions = std::vector<size_t>{dims...};
-        size_t size = Size();
-
-        data = (T*)aligned_alloc(32, size*sizeof(T));
-        owner = true;
-    }
-
-
     inline void Zero() {
-        memset(data, 0, Size()*sizeof(T));
+        memset(data, 0, capacity*sizeof(T));
     }
 
 
@@ -208,5 +178,6 @@ struct Tensor {
 
     T* data;
     bool owner;
+    size_t capacity;
     std::vector<size_t> dimensions;
 };
