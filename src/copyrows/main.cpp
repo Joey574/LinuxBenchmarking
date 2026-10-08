@@ -1,8 +1,3 @@
-#include <vector>
-#include <random>
-#include <chrono>
-#include <iostream>
-#include <algorithm>
 #include <immintrin.h>
 #include <cblas.h>
 

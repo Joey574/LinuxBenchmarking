@@ -1,7 +1,4 @@
 #include <vector>
-#include <random>
-#include <chrono>
-#include <iostream>
 #include <algorithm>
 #include <immintrin.h>
 #include <cblas.h>
@@ -265,7 +262,7 @@ template <size_t L1_BLOCK_SIZE, size_t L2_BLOCK_SIZE, size_t L3_BLOCK_SIZE> __at
                                         // ---- 4x4 register-blocked microkernel ----
                                         // Process 4 rows (i..i+3) and up to 4 inner cols (j..j+3).
                                         V3MicroKernel(aData, bData, cData, M, N, K, iL1, jL1, kL1, iL1Max, jL1Max, kL1Max);
-                                        
+
                                     } // end jL1
                                 } // end kL1
                             } // end iL1
@@ -447,7 +444,7 @@ template <size_t L1_BLOCK_SIZE, size_t L2_BLOCK_SIZE, size_t L3_BLOCK_SIZE> __at
                                         // ---- 4x4 register-blocked microkernel ----
                                         // Process 4 rows (i..i+3) and up to 4 inner cols (j..j+3).
                                         V4MicroKernel(aData, bPackedData, cData, M, N, K, iL1, jL1, kL1, iL1Max, jL1Max, kL1Max, kCount);
-                                            
+
                                     } // end jL1
                                 } // end kL1
                             } // end iL1

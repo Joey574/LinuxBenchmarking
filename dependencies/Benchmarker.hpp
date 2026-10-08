@@ -7,11 +7,9 @@
 #include <numeric>
 #include <execution>
 #include <chrono>
-#include <type_traits>
-#include <variant>
-#include <fstream>
 #include <unistd.h>
 #include <limits.h>
+#include <thread>
 
 struct Settings {
     public:
@@ -40,8 +38,17 @@ struct Benchmarker {
     using aXpbY = void(*)(float, const Tensor<float>&, float, Tensor<float>&);
 
     public:
+    static inline void PinToCore() {
+        unsigned int cores = std::thread::hardware_concurrency() / 2;
+
+        setenv("OMP_NUM_THREADS", std::to_string(cores).c_str(), 1);
+        setenv("OMP_PROC_BIND", "close", 1);
+        setenv("OMP_PLACES", "cores", 1);
+    }
+
     template <int TYPE=0> static inline void RunBenchmark(const std::string& name, const Settings& settings, const cAcBC test, const cAcBC verify=nullptr) {
         std::cout << "Benchmarking: \033[33m" + name + "\033[0m\n";
+        printedHeader = false;
 
         const size_t start_size = settings.startSize;
         const size_t max_size = settings.endSize;
@@ -101,6 +108,7 @@ struct Benchmarker {
     }
     template <int TYPE=0> static inline void RunBenchmark(const std::string& name, const Settings& settings, const cAB test, const cAB verify=nullptr) {
         std::cout << "Benchmarking: \033[33m" + name + "\033[0m\n";
+        printedHeader = false;
 
         const size_t start_size = settings.startSize;
         const size_t max_size = settings.endSize;
@@ -154,6 +162,7 @@ struct Benchmarker {
     }
     template <int TYPE=0> static inline void RunBenchmark(const std::string& name, const Settings& settings, const AcBCD test, const AcBCD verify=nullptr) {
         std::cout << "Benchmarking: \033[33m" + name + "\033[0m\n";
+        printedHeader = false;
 
         const size_t start_size = settings.startSize;
         const size_t max_size = settings.endSize;
@@ -170,7 +179,7 @@ struct Benchmarker {
 
         size_t elements = 512;
         std::uniform_real_distribution<float> lrDist(0.001f, 0.1f);
-        
+
 
         for (size_t size = start_size; size <= max_size; size *= 2) {
             auto a = Tensor<float>(size);
@@ -213,6 +222,7 @@ struct Benchmarker {
     }
     template <int TYPE=0> static inline void RunBenchmark(const std::string& name, const Settings& settings, const aXpbY test, const aXpbY verify=nullptr) {
         std::cout << "Benchmarking: \033[33m" + name + "\033[0m\n";
+        printedHeader = false;
 
         const size_t start_size = settings.startSize;
         const size_t max_size = settings.endSize;
@@ -269,29 +279,32 @@ struct Benchmarker {
     }
 
     private:
+    static bool printedHeader;
+
     static inline void OutputResults(const Settings& settings, size_t size, size_t slen, const std::vector<double>& times, const std::vector<double>& error, const std::vector<double>& flops, bool verified, bool theoretical) {
-        auto it = std::minmax_element(times.begin(), times.end()); 
-        double best = *it.first; 
+        auto it = std::minmax_element(times.begin(), times.end());
+        double best = *it.first;
         double worst = *it.second;
         double sum = std::reduce(times.begin(), times.end(), 0.0, std::plus<double>());
         double mean = sum / (double)settings.runs;
+        double trimmed = TrimmedMean(times, 0.1);
 
         double meanPercentError = verified ? Mean(error) : 0.0;
-        double meanFlops = theoretical ? Mean(flops) : 0.0;
         double sd = StdDev(times, mean);
 
         double CV = VariationCoefficient(sd, mean) * 100.0;
         double CI = CIHalfWidth(sd, times.size());
-        double percentTheoretical = theoretical ? (Mean(flops) / settings.flops * 100.0) : 0.0;
+        double percentTheoretical = theoretical ? (TrimmedMean(flops, 0.1) / settings.flops * 100.0) : 0.0;
 
-        constexpr const size_t COL_BEST = 14;
-        constexpr const size_t COL_WORST = 14;
-        constexpr const size_t COL_MEAN = 14;
-        constexpr const size_t COL_RUNS = 6;
-        constexpr const size_t COL_MPE = 10;
-        constexpr const size_t COL_CV = 14;
-        constexpr const size_t COL_CI = 16;
-        constexpr const size_t COL_PTH = 10;
+        constexpr const size_t COL_BEST    = 14;
+        constexpr const size_t COL_WORST   = 14;
+        constexpr const size_t COL_MEAN    = 14;
+        constexpr const size_t COL_TRIMMED = 14;
+        constexpr const size_t COL_RUNS    = 6;
+        constexpr const size_t COL_MPE     = 10;
+        constexpr const size_t COL_CV      = 14;
+        constexpr const size_t COL_CI      = 16;
+        constexpr const size_t COL_PTH     = 10;
 
         auto formatRaw = [](double v, int precision = 4) {
             if (!std::isfinite(v)) { return std::string("-"); }
@@ -315,32 +328,36 @@ struct Benchmarker {
         };
 
         // raw fields
-        std::string rawSize = std::to_string(size);
-        std::string rawBest = formatRaw(best, 5) + "ms";
-        std::string rawWorst = formatRaw(worst, 5) + "ms";
-        std::string rawMean = formatRaw(mean, 5) + "ms";
-        std::string rawRuns = std::to_string(settings.runs);
-        std::string rawCV = formatRaw(CV, 2) + "%";
-        std::string rawCI = "± " + formatRaw(CI, 3) + "ms";
-        std::string rawMpe = verified ? (formatRaw(meanPercentError, 3) + "%") : "";
+        std::string rawSize    = std::to_string(size);
+        std::string rawBest    = formatRaw(best, 5) + "ms";
+        std::string rawWorst   = formatRaw(worst, 5) + "ms";
+        std::string rawMean    = formatRaw(mean, 5) + "ms";
+        std::string rawTrimmed = formatRaw(trimmed, 5) + "ms";
+        std::string rawRuns    = std::to_string(settings.runs);
+        std::string rawCV      = formatRaw(CV, 2) + "%";
+        std::string rawCI      = "± " + formatRaw(CI, 3) + "ms";
+
+        std::string rawMpe = verified    ? (formatRaw(meanPercentError, 3) + "%")   : "";
         std::string rawPth = theoretical ? (formatRaw(percentTheoretical, 2) + "%") : "";
 
         // pad all to width
-        std::string paddedSize  = padRaw(rawSize,  slen,      true);
-        std::string paddedRuns  = padRaw(rawRuns,  COL_RUNS,  true);
-        std::string paddedBest  = padRaw(rawBest,  COL_BEST,  true);
-        std::string paddedWorst = padRaw(rawWorst, COL_WORST, true);
-        std::string paddedMean  = padRaw(rawMean,  COL_MEAN,  true);
-        std::string paddedCV    = padRaw(rawCV,    COL_CV,    true);
-        std::string paddedCI    = padRaw(rawCI,    COL_CI,    true);
-        std::string paddedMpe   = padRaw(rawMpe,   COL_MPE,   true);
-        std::string paddedPth   = padRaw(rawPth,   COL_PTH,   true);
+        std::string paddedSize  = padRaw(rawSize,    slen,        true);
+        std::string paddedRuns  = padRaw(rawRuns,    COL_RUNS,    true);
+        std::string paddedBest  = padRaw(rawBest,    COL_BEST,    true);
+        std::string paddedWorst = padRaw(rawWorst,   COL_WORST,   true);
+        std::string paddedMean  = padRaw(rawMean,    COL_MEAN,    true);
+        std::string paddedTrim  = padRaw(rawTrimmed, COL_TRIMMED, true);
+        std::string paddedCV    = padRaw(rawCV,      COL_CV,      true);
+        std::string paddedCI    = padRaw(rawCI,      COL_CI,      true);
+        std::string paddedMpe   = padRaw(rawMpe,     COL_MPE,     true);
+        std::string paddedPth   = padRaw(rawPth,     COL_PTH,     true);
 
         // apply colors
         std::string sizeCol  = colorWrap(paddedSize,  "\033[0m");
         std::string bestCol  = colorWrap(paddedBest,  "\033[32m");
         std::string worstCol = colorWrap(paddedWorst, "\033[31m");
         std::string meanCol  = colorWrap(paddedMean,  "\033[34m");
+        std::string trimCol  = colorWrap(paddedTrim,  "\033[34m");
         std::string runsCol  = colorWrap(paddedRuns,  "\033[33m");
         std::string CVCol    = colorWrap(paddedCV,    "\033[33m");
         std::string CICol    = colorWrap(paddedCI,    "\033[33m");
@@ -348,18 +365,18 @@ struct Benchmarker {
         std::string pthCol   = theoretical ? colorWrap(paddedPth, "\033[32m") : paddedPth;
 
         // output header once
-        static bool printedHeader = false;
         if (!printedHeader) {
             std::ostringstream hdr;
-            hdr << padRaw("size",  slen,      true) << " "
-                << padRaw("runs",  COL_RUNS,  true) << " "
-                << padRaw("best",  COL_BEST,  true) << " "
-                << padRaw("worst", COL_WORST, true) << " "
-                << padRaw("mean",  COL_MEAN,  true) << " "
-                << padRaw("CV",    COL_CV,    true) << "  "
-                << padRaw("CI95",  COL_CI,    true) << " "
-                << padRaw("MPE",   COL_MPE,   true) << "  "
-                << padRaw("PTH",   COL_PTH,   true) << "\n";
+            hdr << padRaw("size",    slen,        true) << " "
+                << padRaw("runs",    COL_RUNS,    true) << " "
+                << padRaw("best",    COL_BEST,    true) << " "
+                << padRaw("worst",   COL_WORST,   true) << " "
+                << padRaw("mean",    COL_MEAN,    true) << " "
+                << padRaw("trimmed", COL_TRIMMED, true) << " "
+                << padRaw("CV",      COL_CV,      true) << "  "
+                << padRaw("CI95",    COL_CI,      true) << " "
+                << padRaw("MPE",     COL_MPE,     true) << "  "
+                << padRaw("PTH",     COL_PTH,     true) << "\n";
             std::cout << hdr.str();
             printedHeader = true;
         }
@@ -370,6 +387,7 @@ struct Benchmarker {
             << bestCol  << " "
             << worstCol << " "
             << meanCol  << " "
+            << trimCol  << " "
             << CVCol    << "  "
             << CICol    << "  "
             << mpeCol   << "  "
@@ -386,6 +404,17 @@ struct Benchmarker {
         return digits;
     }
 
+    static inline double TrimmedMean(const std::vector<double>& t, double trim) {
+        // create copy
+        auto trimmed = t;
+        std::sort(trimmed.begin(), trimmed.end());
+
+        // trim out beginning and end sections
+        trimmed.erase(trimmed.begin(), trimmed.begin()+(t.size()*trim));
+        trimmed.resize(trimmed.size()-(t.size()*trim));
+
+        return Mean(trimmed);
+    }
     static inline double Mean(const std::vector<double>& t) {
         return std::reduce(std::execution::unseq, t.begin(), t.end(), 0.00, std::plus<double>()) / t.size();
     }
@@ -403,4 +432,17 @@ struct Benchmarker {
     static inline double RCIW(double upper, double lower, double mean) {
         return (upper - lower) / (2.0*mean);
     }
+
+    static void EvictCpuCaches(size_t bytes=32*1024*1024) {
+        static std::vector<char> scratch;
+        scratch.resize(bytes, 1);
+
+        volatile char sink = 0;
+        for (size_t i = 0; i < scratch.size(); i += 64) {
+            sink ^= scratch[i];
+        }
+        (void)sink;
+    }
 };
+
+bool Benchmarker::printedHeader;

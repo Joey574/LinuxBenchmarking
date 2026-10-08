@@ -1,5 +1,4 @@
 #include <vector>
-#include <random>
 #include <immintrin.h>
 #include <cblas.h>
 #include <immintrin.h>
@@ -78,7 +77,7 @@ void AppliedCase1(const Tensor<float>& a, const Tensor<float>& b, Tensor<float>&
         Practice:
             The overhead acrued by unaligned loads and stores for simd far outweighs anything we may gain
             from the added FPUs
-    
+
     */
 
     const float* __restrict a_data = a.Data();

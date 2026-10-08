@@ -1,22 +1,11 @@
 #pragma once
-#include <chrono>
-#include <csignal>
 #include <vector>
-#include <string>
 #include <immintrin.h>
 #include <string.h>
-#include <ranges>
 #include <algorithm>
 #include <iostream>
-#include <filesystem>
-#include <atomic>
-#include <thread>
-#include <fstream>
 #include <random>
-#include <format>
-#include <cctype>
 #include <math.h>
-#include <complex>
 #include <execution>
 #include <functional>
 #include <numeric>
@@ -43,7 +32,7 @@ struct Tensor {
 
 
     /// @brief Move constructor
-    Tensor(Tensor&& other) noexcept : data(other.data), dimensions(std::move(other.dimensions)), owner(other.owner), capacity(other.capacity) { 
+    Tensor(Tensor&& other) noexcept : data(other.data), dimensions(std::move(other.dimensions)), owner(other.owner), capacity(other.capacity) {
         other.owner = false;
         other.data = nullptr;
     }
@@ -94,23 +83,23 @@ struct Tensor {
     }
 
 
-    /// @return Const pointer to raw data 
+    /// @return Const pointer to raw data
     inline const T* Data() const {
         assert(data != nullptr);
-        return data; 
+        return data;
     }
 
 
     /// @return Pointer to raw data
     inline T* Data() {
         assert(data != nullptr);
-        return data; 
+        return data;
     }
 
 
     /// @return The dimensionality of the tensor
     inline constexpr size_t Dimensionality() const {
-        return dimensions.size(); 
+        return dimensions.size();
     }
 
 
@@ -169,7 +158,7 @@ struct Tensor {
                 }
             }
         }
-        
+
 
         return true;
     }
